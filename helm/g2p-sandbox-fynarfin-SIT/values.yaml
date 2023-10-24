@@ -152,7 +152,7 @@ ph-ee-g2psandbox:
       enabled: false
     
     mpesa:
-      enabled: false
+      enabled: true
       
     roster_connector:
       enabled: false
