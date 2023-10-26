@@ -61,7 +61,7 @@ ph-ee-g2psandbox:
                       number: 7070
 
     ph_ee_connector_mojaloop:
-      enabled: true
+      enabled: false
       imageTag: "830df54849"
       ingress:
         enabled: true  
@@ -144,7 +144,7 @@ ph-ee-g2psandbox:
                     number: 4200            
 
     ph_ee_connector_gsma:
-      enabled: true
+      enabled: false
       ingress:
         enabled: true  
 
@@ -161,7 +161,7 @@ ph-ee-g2psandbox:
       enabled: false
       
     notifications:
-      enabled: true
+      enabled: false
       NOTIFICATION_FAILURE_ENABLED: "false"
       ingress:
         enabled: true 
@@ -177,7 +177,7 @@ ph-ee-g2psandbox:
 
 
     connector_bulk:
-      enabled: true
+      enabled: false
       tenants: "rhino,gorilla"
       deployment:
         annotations:
@@ -245,7 +245,7 @@ ph-ee-g2psandbox:
       enabled: true
     
     mockpayment:
-      enabled: true
+      enabled: false
       ingress:
         enabled: true
         annotations:
@@ -281,12 +281,12 @@ ph-ee-g2psandbox:
         hostname: admin-kong.sandbox.fynarfin.io 
 
     redis:
-      enabled: true
+      enabled: false
       replica:
         replicaCount: 0
 
     vouchers:
-      enabled: true
+      enabled: false
 
       voucher:
         hostname: "https://vouchers.sandbox.fynarfin.io"
@@ -322,7 +322,7 @@ ph-ee-g2psandbox:
 
 
   account_mapper:
-    enabled: true
+    enabled: false
     deployment:
       annotations:
         rollme: "{{ randAlphaNum 5 | quote }}"
