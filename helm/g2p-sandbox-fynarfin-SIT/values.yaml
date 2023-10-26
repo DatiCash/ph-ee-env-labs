@@ -281,7 +281,7 @@ ph-ee-g2psandbox:
         hostname: admin-kong.sandbox.fynarfin.io 
 
     redis:
-      enabled: false
+      enabled: true
       replica:
         replicaCount: 0
 
