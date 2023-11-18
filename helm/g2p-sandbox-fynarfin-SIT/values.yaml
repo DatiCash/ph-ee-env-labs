@@ -146,7 +146,7 @@ ph-ee-g2psandbox:
                     number: 4200            
 
     ph_ee_connector_gsma:
-      enabled: true
+      enabled: false
       ingress:
         enabled: true  
 
@@ -154,7 +154,7 @@ ph-ee-g2psandbox:
       enabled: false
     
     mpesa:
-      enabled: false
+      enabled: true
       
     roster_connector:
       enabled: false
@@ -163,7 +163,7 @@ ph-ee-g2psandbox:
       enabled: false
       
     notifications:
-      enabled: true
+      enabled: false
       NOTIFICATION_FAILURE_ENABLED: "false"
       ingress:
         enabled: true 
@@ -179,7 +179,7 @@ ph-ee-g2psandbox:
 
 
     connector_bulk:
-      enabled: true
+      enabled: false
       tenants: "rhino,gorilla"
       deployment:
         annotations:
@@ -193,9 +193,9 @@ ph-ee-g2psandbox:
         endpoints:
           batch_transaction: "/api/v1/batch/transactions"
       identity_account_mapper:
-        hostname: "https://identity-mapper.sandbox.fynarfin.io"
+        hostname: "https://identity-mapper.sandbox.daticash.io"
       ingress:
-        enabled: true
+        enabled: false
         className: "kong"
         tls:
           - secretName: sandbox-secret
@@ -225,7 +225,7 @@ ph-ee-g2psandbox:
                     number: 80
 
     messagegateway:
-      enabled: true
+      enabled: false
       secret:
         value:
           api_key: "eKiC1_JWdKy7eaTGQFHxXXjXjacr60W9Zntl"
@@ -249,7 +249,7 @@ ph-ee-g2psandbox:
       enabled: true
     
     mockpayment:
-      enabled: true
+      enabled: false
       ingress:
         enabled: true
         annotations:
@@ -290,7 +290,7 @@ ph-ee-g2psandbox:
         replicaCount: 0
 
     vouchers:
-      enabled: true
+      enabled: false
 
       voucher:
         hostname: "https://vouchers.sandbox.daticash.io"
@@ -326,7 +326,7 @@ ph-ee-g2psandbox:
 
 
   account_mapper:
-    enabled: true
+    enabled: false
     deployment:
       annotations:
         rollme: "{{ randAlphaNum 5 | quote }}"
