@@ -130,7 +130,8 @@ ph-ee-g2psandbox:
                     number: 80 
 
     operations_web:
-      enabled: true 
+      enabled: true
+      image: docker.io/hazefor/daticash:ops-web 
       ingress:
         enabled: true
         annotations:
@@ -155,6 +156,7 @@ ph-ee-g2psandbox:
     
     mpesa:
       enabled: true
+      image: docker.io/hazefor/daticash:mpesa
       
     roster_connector:
       enabled: false
@@ -195,7 +197,7 @@ ph-ee-g2psandbox:
       identity_account_mapper:
         hostname: "https://identity-mapper.sandbox.daticash.io"
       ingress:
-        enabled: false
+        enabled: true
         className: "kong"
         tls:
           - secretName: sandbox-secret
