@@ -4,6 +4,7 @@ orbs:
   helm: circleci/helm@2.0.1
   aws-eks: circleci/aws-eks@2.2.0
   kubernetes: circleci/kubernetes@1.3
+  mifos-orb: mifos/docker-image-availability-check-and-upgrade@1.0.0
 jobs:
   build:
     docker:
@@ -17,78 +18,56 @@ jobs:
       - helm/install-helm-client:
           version: "v3.8.2"
       # - run: "sed -i '12s/.*/version: 0.0.0/' helm/g2p-sandbox-fynarfin-SIT/Chart.yaml"
-      - run: cat helm/g2p-sandbox-fynarfin-SIT/Chart.yaml
-      - run: helm package helm/g2p-sandbox-fynarfin-SIT
-      - run: helm repo index .
-      - run: echo "$CERT_FILE" | base64 --decode > b64encoded.pem
-      - run: chmod 400 b64encoded.pem
-      - run: scp -o StrictHostKeyChecking=No -i b64encoded.pem index.yaml ph-ee-g2psandbox-fynarfin-0.2.0.tgz root@38.242.153.11:~/
-      - run: ssh -i b64encoded.pem -o StrictHostKeyChecking=No root@38.242.153.11 sudo mv -t /apps/apache-tomcat-7.0.82/webapps/ROOT/images/ph-ee-g2psandbox-fynarfin index.yaml ph-ee-g2psandbox-fynarfin-0.2.0.tgz
+      - run:
+          name: build-and-host-g2p-fynarfin-sit
+          environment:
+            JIRA_STORY: ""
+            JIRA_STORY_DIR: ""
+          command: |
+            if [ "$CIRCLE_BRANCH" != "master" ]; then
+                PR_NUMBER=$(basename $CIRCLE_PULL_REQUEST)
+                PR_TITLE=$(curl -sSL "https://api.github.com/repos/openmf/$CIRCLE_PROJECT_REPONAME/pulls/$PR_NUMBER" | jq -r '.title')
+                JIRA_STORY=-$(echo $PR_TITLE | cut -d "[" -f2 | cut -d "]" -f1 | tr '[A-Z]' '[a-z]')
+                if [ -z "$JIRA_STORY" ]; then echo "Invalid PR title" && exit 1; else echo "Ticket NO: $JIRA_STORY" && JIRA_STORY_DIR=$(echo /jira-story-version); fi
+                echo Charts will save in https://fynarfin.io/images$JIRA_STORY_DIR
+            fi
+            CHART_URL="https://fynarfin.io/images$JIRA_STORY_DIR/ph-ee-g2psandbox-0.0.0$JIRA_STORY"
+            if curl --output /dev/null --silent --head --fail "$CHART_URL"; then
+              sed -i "11s@^ *repository:.*\$@  repository: $CHART_URL@" helm/g2p-sandbox-fynarfin-SIT/Chart.yaml
+              sed -i "12s@^ *version:.*\$@  version: 0.0.0$JIRA_STORY@" helm/g2p-sandbox-fynarfin-SIT/Chart.yaml
+              echo "chart used: < $CHART_URL >"
+            else
+              CHART_URL="https://fynarfin.io/images/ph-ee-g2psandbox-0.0.0"
+              echo "chart used: < $CHART_URL >"
+            fi
+            sed -i "6s/.*/version: 0.2.0$JIRA_STORY/" helm/g2p-sandbox-fynarfin-SIT/Chart.yaml
+            cat helm/g2p-sandbox-fynarfin-SIT/Chart.yaml
+            helm dep up helm/g2p-sandbox-fynarfin-SIT
+            helm package helm/g2p-sandbox-fynarfin-SIT
+            helm repo index .
+            echo "$CERT_FILE" | base64 --decode > b64encoded.pem
+            chmod 400 b64encoded.pem
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mkdir -p /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/ph-ee-g2psandbox-fynarfin$JIRA_STORY
+            scp -o StrictHostKeyChecking=No -i b64encoded.pem index.yaml ph-ee-g2psandbox-fynarfin-0.2.0$JIRA_STORY.tgz ec2-user@13.233.68.128:~/
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mv -t /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/ph-ee-g2psandbox-fynarfin$JIRA_STORY index.yaml ph-ee-g2psandbox-fynarfin-0.2.0$JIRA_STORY.tgz
 
   upgrade-g2psandbox-helm-chart:
     docker:
       - image: cimg/python:3.10
-    parameters:
-      cluster-name:
-        description: "daticash-ph"
-        type: string
+    environment:
+      TERM: dumb
     steps:
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: "daticash-ph"
-          aws-region: "$REGION"
-      - helm/install-helm-client:
-          version: "v3.8.2"
-      - run: helm ls --namespace=paymenthub
-      - helm/upgrade-helm-chart:
-          chart: "https://fynarfin.io/images/ph-ee-g2psandbox-fynarfin/ph-ee-g2psandbox-fynarfin-0.2.0.tgz"
-          release-name: "g2p-sandbox"
+      - mifos-orb/docker-image-availability-check-and-upgrade:
           namespace: paymenthub
-          recreate-pods: true
-          add-repo: "https://fynarfin.io/images/ph-ee-g2psandbox-fynarfin"
-          wait: true
-          timeout: "300s"
-      # - run: helm test g2p-sandbox --namespace=paymenthub
-      # reset-values: true
-      # dry-run: true
-      # - helm/install-helm-chart:
-      #     add-repo: "https://fynarfin.io/images/"
-      #     chart: "https://fynarfin.io/images/ph-ee-g2psandbox-0.2.0.tgz"
-      #     release-name: g2p-sandbox
-      #     namespace: ph-test
-
-      # kubectl delete secrets elastic-certificates elastic-certificate-pem elastic-certificate-crt|| true
-
-  create-secret-paymenthub-namespace:
-    docker:
-      - image: cimg/base:2022.06
-    steps:
-      - setup_remote_docker:
-          version: 20.10.14
-      - kubernetes/install-kubectl
-      - checkout
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: "daticash-ph"
+          chart-base-url: https://fynarfin.io/images
+          chart-name: ph-ee-g2psandbox-fynarfin
+          chart-version: 0.2.0
+          #          chart: "https://fynarfin.io/images/ph-ee-g2psandbox-fynarfin/ph-ee-g2psandbox-fynarfin-0.2.0.tgz"
+          release-name: g2p-sandbox
+          #          add-repo: "https://fynarfin.io/images/ph-ee-g2psandbox-fynarfin"
+          cluster-name: "sit"
           aws-region: "$REGION"
-      - run: |
-          export ENV_NAMESPACE=paymenthub
-          kubectl config use-context arn:aws:eks:$REGION:351057211335:cluster/daticash-ph
-          kubectl config get-contexts
-          cd helm/kibana-secret/
-          make secrets || echo "kibana" already exists
-
-      - run: |
-          export ENV_NAMESPACE=paymenthub
-          kubectl config use-context arn:aws:eks:$REGION:351057211335:cluster/daticash-ph
-          kubectl config get-contexts
-          cd helm/es-secret/
-          make secrets || echo "elastic-certificates" already exists
-
-      - run: |
-          export ENV_NAMESPACE=paymenthub
-          kubectl delete secret bulk-processor-secret -n $ENV_NAMESPACE || echo "delete the secret if exist"
-          kubectl create secret generic bulk-processor-secret \
-          --from-literal=aws-access-key="$S3_ACCESS_KEY_ID" \
-          --from-literal=aws-secret-key="$S3_SECRET_ACCESS_KEY" -n $ENV_NAMESPACE
+          service-file-path: https://raw.githubusercontent.com/openMF/ph-ee-env-labs/master/.circleci/services.txt
 
   host-g2-sandbox-security-fynarfin-chart:
     docker:
@@ -101,52 +80,135 @@ jobs:
       - run: rm -f helm/g2p-sandbox-security-fynarfin-SIT/Chart.lock helm/g2p-sandbox-security-fynarfin-SIT/requirements.lock helm/g2p-sandbox-security-fynarfin-SIT/charts/*
       - helm/install-helm-client:
           version: "v3.8.2"
-      - run: cat helm/g2p-sandbox-security-fynarfin-SIT/Chart.yaml
-      - run: helm dep up helm/g2p-sandbox-security-fynarfin-SIT
-      - run: helm package helm/g2p-sandbox-security-fynarfin-SIT
-      - run: helm repo index .
-      - run: echo "$CERT_FILE" | base64 --decode > b64encoded.pem
-      - run: chmod 400 b64encoded.pem
-      - run: ssh -i b64encoded.pem -o StrictHostKeyChecking=No root@38.242.153.11 sudo mkdir -p /apps/apache-tomcat-7.0.82/webapps/ROOT/images/ph-ee-g2psandbox-security-fynarfin
-      - run: scp -o StrictHostKeyChecking=No -i b64encoded.pem index.yaml ph-ee-g2psandbox-security-fynarfin-0.0.0.tgz root@38.242.153.11:~/
-      - run: ssh -i b64encoded.pem -o StrictHostKeyChecking=No root@38.242.153.11 sudo mv -t /apps/apache-tomcat-7.0.82/webapps/ROOT/images/ph-ee-g2psandbox-security-fynarfin index.yaml ph-ee-g2psandbox-security-fynarfin-0.0.0.tgz
-
+      - run:
+          name: build-and-host-g2p-sandbox-security
+          environment:
+            JIRA_STORY: ""
+            JIRA_STORY_DIR: ""
+          command: |
+            if [ "$CIRCLE_BRANCH" != "master" ]; then
+              PR_NUMBER=$(basename $CIRCLE_PULL_REQUEST)
+              PR_TITLE=$(curl -sSL "https://api.github.com/repos/openmf/$CIRCLE_PR_REPONAME/pulls/$PR_NUMBER" | jq -r '.title')
+              JIRA_STORY=-$(echo $PR_TITLE | cut -d "[" -f2 | cut -d "]" -f1 | tr '[A-Z]' '[a-z]')
+              if [ -z "$JIRA_STORY" ]; then echo "Invalid PR title" && exit 1; else echo "Ticket NO: $JIRA_STORY" && JIRA_STORY_DIR=$(echo /jira-story-version); fi
+            fi
+            CHART_URL="https://fynarfin.io/images$JIRA_STORY_DIR/ph-ee-g2psandbox-security$JIRA_STORY"
+            if curl --output /dev/null --silent --head --fail "$CHART_URL"; then
+              sed -i "10s@^ *repository:.*\$@  repository: $CHART_URL@" helm/g2p-sandbox-security-fynarfin-SIT/Chart.yaml
+              sed -i "11s@^ *version:.*\$@  version: 0.0.0$JIRA_STORY@" helm/g2p-sandbox-security-fynarfin-SIT/Chart.yaml
+              echo "chart used: < $CHART_URL >"
+            else
+              CHART_URL="https://fynarfin.io/images/ph-ee-g2psandbox-security"
+              echo "chart used: < $CHART_URL >"
+            fi
+            sed -i "5s/.*/version: 0.0.0$JIRA_STORY/" helm/g2p-sandbox-security-fynarfin-SIT/Chart.yaml
+            cat helm/g2p-sandbox-security-fynarfin-SIT/Chart.yaml
+            # - run: "sed -i '4s/.*/version: 0.0.0-SNAPSHOT/' helm/g2p-sandbox-security/requirements.yaml"
+            # SED & replace dependency with 0.0.0
+            helm dep up helm/g2p-sandbox-security-fynarfin-SIT
+            helm package helm/g2p-sandbox-security-fynarfin-SIT
+            helm repo index .
+            echo "$CERT_FILE" | base64 --decode > b64encoded.pem
+            chmod 400 b64encoded.pem
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mkdir -p /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/ph-ee-g2psandbox-security-fynarfin$JIRA_STORY
+            scp -o StrictHostKeyChecking=No -i b64encoded.pem index.yaml ph-ee-g2psandbox-security-fynarfin-0.0.0$JIRA_STORY.tgz ec2-user@13.233.68.128:~/
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mv -t /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/ph-ee-g2psandbox-security-fynarfin$JIRA_STORY index.yaml ph-ee-g2psandbox-security-fynarfin-0.0.0$JIRA_STORY.tgz
   upgrade-g2psandbox-security-helm-chart:
     docker:
       - image: cimg/python:3.10
-    parameters:
-      cluster-name:
-        description: "daticash-ph"
-        type: string
     steps:
       - aws-eks/update-kubeconfig-with-authenticator:
           cluster-name: "daticash-ph"
           aws-region: "$REGION"
-      - helm/install-helm-client:
-          version: "v3.8.2"
       - kubernetes/install-kubectl
       - run: |
           if ! kubectl get ns ph-infrastructure > /dev/null 2>&1; then
               kubectl create namespace ph-infrastructure
           fi
-      - run: helm ls --namespace=ph-infrastructure
-      - helm/upgrade-helm-chart:
-          chart: "https://fynarfin.io/images/ph-ee-g2psandbox-security-fynarfin/ph-ee-g2psandbox-security-fynarfin-0.0.0.tgz"
-          release-name: "g2p-sandbox-security"
+      - mifos-orb/docker-image-availability-check-and-upgrade:
           namespace: ph-infrastructure
-          recreate-pods: true
-          add-repo: "https://fynarfin.io/images/ph-ee-g2psandbox-security"
-          wait: true
-          timeout: "300s"
+          chart-base-url: https://fynarfin.io/images
+          chart-name: ph-ee-g2psandbox-security-fynarfin
+          chart-version: 0.0.0
+          #          chart: "https://fynarfin.io/images/ph-ee-g2psandbox-security-fynarfin/ph-ee-g2psandbox-security-fynarfin-0.0.0.tgz"
+          #          add-repo: "https://fynarfin.io/images/ph-ee-g2psandbox-security-fynarfin"
+          release-name: g2p-sandbox-security
+          cluster-name: "sit"
+          aws-region: "$REGION"
+          service-file-path: https://raw.githubusercontent.com/openMF/ph-ee-env-labs/master/.circleci/services.txt
 
-  deploying-bpmns:
+  host-dpga-compliance-barebone-chart:
     docker:
-      - image: "curlimages/curl:8.1.2"
+      - image: cimg/python:3.10
+    working_directory: ~/repo
+    environment:
+      TERM: dumb
     steps:
       - checkout
-      - run: echo $AWS_PROFILE
-      - run: echo $AWS_DEFAULT_PROFILE
-      - run: sh orchestration/deployBpmn.sh
+      - run: |
+          if [[ -n $(git show --name-only $CIRCLE_SHA1 | grep "^helm/dpga-compliance-barebone/") ]]; then
+            echo "Directory has changed. Running the job."
+          else
+            echo "Directory has not changed. Skipping the job."
+            circleci step halt
+          fi
+      - run: rm -f helm/dpga-compliance-barebone/Chart.lock helm/dpga-compliance-barebone/charts/*
+      - helm/install-helm-client:
+          version: "v3.8.2"
+      - run:
+          name: host-dpga-compliance-barebone-chart
+          environment:
+            JIRA_STORY: ""
+            JIRA_STORY_DIR: ""
+          command: |
+            if [ "$CIRCLE_BRANCH" != "master" ]; then
+              PR_NUMBER=$(basename $CIRCLE_PULL_REQUEST)
+              PR_TITLE=$(curl -sSL "https://api.github.com/repos/openmf/$CIRCLE_PR_REPONAME/pulls/$PR_NUMBER" | jq -r '.title')
+              JIRA_STORY=-$(echo $PR_TITLE | cut -d "[" -f2 | cut -d "]" -f1 | tr '[A-Z]' '[a-z]')
+              if [ -z "$JIRA_STORY" ]; then echo "Invalid PR title" && exit 1; else echo "Ticket NO: $JIRA_STORY" && JIRA_STORY_DIR=$(echo /jira-story-version); fi
+            fi
+            sed -i "6s/.*/version: 1.0.0$JIRA_STORY/" helm/dpga-compliance-barebone/Chart.yaml
+            cat helm/dpga-compliance-barebone/Chart.yaml
+            helm dep up helm/dpga-compliance-barebone
+            helm package helm/dpga-compliance-barebone
+            helm repo index .
+            echo "$CERT_FILE" | base64 --decode > b64encoded.pem
+            chmod 400 b64encoded.pem
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mkdir -p /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/dpga-barebone$JIRA_STORY
+            scp -o StrictHostKeyChecking=No -i b64encoded.pem index.yaml dpga-barebone-1.0.0$JIRA_STORY.tgz ec2-user@13.233.68.128:~/
+            ssh -i b64encoded.pem -o StrictHostKeyChecking=No ec2-user@13.233.68.128 sudo mv -t /apps/apache-tomcat-7.0.82/webapps/ROOT/images$JIRA_STORY_DIR/dpga-barebone$JIRA_STORY index.yaml dpga-barebone-1.0.0$JIRA_STORY.tgz
+
+  upgrade-dpga-compliance-barebone-chart:
+    docker:
+      - image: cimg/python:3.10
+    steps:
+      - checkout
+      - run: |
+          if [[ -n $(git show --name-only $CIRCLE_SHA1 | grep "^helm/dpga-compliance-barebone/") ]]; then
+            echo "Directory has changed. Running the job."
+          else
+            echo "Directory has not changed. Skipping the job."
+            circleci step halt
+          fi
+      - aws-eks/update-kubeconfig-with-authenticator:
+          cluster-name: "sit"
+          aws-region: "$REGION"
+      - kubernetes/install-kubectl
+      - run: |
+          if ! kubectl get ns paymenthub-dpg > /dev/null 2>&1; then
+              kubectl create namespace paymenthub-dpg
+          fi
+      - mifos-orb/docker-image-availability-check-and-upgrade:
+          namespace: paymenthub-dpg
+          chart-base-url: https://fynarfin.io/images
+          chart-name: dpga-barebone
+          chart-version: 1.0.0
+          #          chart: "https://fynarfin.io/images/dpga-barebone/dpga-barebone-1.0.0.tgz"
+          #          add-repo: "https://fynarfin.io/images/dpga-barebone"
+          release-name: dpga-release
+          cluster-name: "sit"
+          aws-region: "$REGION"
+          service-file-path: https://raw.githubusercontent.com/openMF/ph-ee-env-labs/master/.circleci/services.txt
 
   test-chart-gov:
     docker:
@@ -181,7 +243,6 @@ workflows:
             - Helm
             - slack
       - upgrade-g2psandbox-helm-chart:
-          cluster-name: sit
           requires:
             - build
             - upgrade-g2psandbox-security-helm-chart
@@ -189,43 +250,9 @@ workflows:
             - AWS
             - Helm
             - slack
-            - Secrets
-      - create-secret-paymenthub-namespace:
-          requires:
-            - upgrade-g2psandbox-helm-chart
-          context:
-            - AWS
-            - Helm
-            - slack
-            - Secrets
       - upgrade-g2psandbox-security-helm-chart:
-          cluster-name: sit
           requires:
             - host-g2-sandbox-security-fynarfin-chart
-          context:
-            - AWS
-            - Helm
-            - slack
-            - Secrets
-      - deploying-bpmns:
-          requires:
-            - upgrade-g2psandbox-helm-chart
-          context:
-            - AWS
-            - Helm
-            - slack
-      - test-chart-gov:
-          requires:
-            - create-secret-paymenthub-namespace
-            - deploying-bpmns
-          context:
-            - AWS
-            - Helm
-            - slack
-      - test-chart-ams:
-          requires:
-            - create-secret-paymenthub-namespace
-            - deploying-bpmns
           context:
             - AWS
             - Helm
@@ -236,14 +263,12 @@ workflows:
             - Helm
             - slack
       - upgrade-dpga-compliance-barebone-chart:
-          cluster-name: sit
           requires:
             - host-dpga-compliance-barebone-chart
           context:
             - AWS
             - Helm
             - slack
-            - Secrets
       # - install-helm-chart:
       #     cluster-name: sit
       # - delete-helm-release:
