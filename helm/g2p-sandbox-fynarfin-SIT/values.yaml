@@ -127,7 +127,7 @@ ph-ee-g2psandbox:
           konghq.com/protocol: "https"
       ingress:
         enabled: true
-        className: "kong"
+        className: "nginx"
         hosts:
           - host: channel.sandbox.daticash.io
             paths:
@@ -148,7 +148,7 @@ ph-ee-g2psandbox:
 
     operations_app:
       enabled: true
-      image: docker.io/openmf/ph-ee-operations-app:latest
+      image: docker.io/openmf/ph-ee-operations-app:v1.14.0
       tenants: "rhino,gorilla"
       deployment:
         annotations:
